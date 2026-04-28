@@ -203,8 +203,8 @@ def listar_productos():
 @app.route("/enviar-alerta", methods=["POST"])
 def enviar_alerta():
     try:
-        data = request.get_json()
-        destino = data.get("to")
+        data = request.get_json(silent=True) or {}
+        destino = data.get("to") or data.get("email")
         asunto = data.get("subject")
         mensaje = data.get("message")
 

@@ -8,33 +8,27 @@ app = Flask(__name__)
 
 
 def enviar_correo_alerta(asunto, mensaje, destino):
-    # Soporta dos convenciones de nombres en variables de entorno: SMTP_* y EMAIL_*.
-    smtp_host = os.getenv("SMTP_HOST", "smtp.gmail.com")
-    smtp_port = int(os.getenv("SMTP_PORT", "587"))
-    smtp_user = os.getenv("SMTP_USER") or os.getenv("EMAIL_USER")
-    smtp_password = os.getenv("SMTP_PASSWORD") or os.getenv("EMAIL_PASSWORD")
-    smtp_from = os.getenv("SMTP_FROM") or smtp_user
-    use_tls = os.getenv("SMTP_USE_TLS", "true").lower() in ("1", "true", "yes")
-
-    if not smtp_user:
-        raise ValueError("Falta SMTP_USER o EMAIL_USER")
-    if not smtp_password:
-        raise ValueError("Falta SMTP_PASSWORD o EMAIL_PASSWORD")
-    if not smtp_from:
-        raise ValueError("Falta SMTP_FROM")
-
+    """Envía correo usando EMAIL_USER y EMAIL_PASSWORD de Render"""
+    email_user = os.getenv("EMAIL_USER")
+    email_password = os.getenv("EMAIL_PASSWORD")
+    
+    if not email_user or not email_password:
+        raise ValueError("Faltan EMAIL_USER o EMAIL_PASSWORD")
+    
+    # Conectar a Gmail SMTP (puerto 587 es para envío de correos)
+    servidor = smtplib.SMTP("smtp.gmail.com", 587, timeout=10)
+    servidor.starttls()  # Encriptar la conexión
+    servidor.login(email_user, email_password)
+    
+    # Crear el correo
     correo = MIMEText(mensaje, "plain", "utf-8")
     correo["Subject"] = asunto
-    correo["From"] = smtp_from
+    correo["From"] = email_user
     correo["To"] = destino
-
-    with smtplib.SMTP(smtp_host, smtp_port) as servidor:
-        servidor.ehlo()
-        if use_tls:
-            servidor.starttls()
-            servidor.ehlo()
-        servidor.login(smtp_user, smtp_password)
-        servidor.sendmail(smtp_from, [destino], correo.as_string())
+    
+    # Enviar
+    servidor.sendmail(email_user, [destino], correo.as_string())
+    servidor.quit()
 
 
 def get_connection():
@@ -72,70 +66,6 @@ def home():
         "success": True,
         "message": "API Flask funcionando correctamente en Render"
     })
-
-
-@app.route("/debug-env")
-def debug_env():
-    return jsonify({
-        "DB_SERVER": os.getenv("DB_SERVER"),
-        "DB_DATABASE": os.getenv("DB_DATABASE"),
-        "DB_USERNAME": os.getenv("DB_USERNAME"),
-        "DB_PASSWORD_EXISTS": bool(os.getenv("DB_PASSWORD")),
-        "DB_PORT": os.getenv("DB_PORT"),
-        "SMTP_HOST": os.getenv("SMTP_HOST", "smtp.gmail.com"),
-        "SMTP_PORT": os.getenv("SMTP_PORT", "587"),
-        "SMTP_USER_EXISTS": bool(os.getenv("SMTP_USER")),
-        "SMTP_PASSWORD_EXISTS": bool(os.getenv("SMTP_PASSWORD")),
-        "EMAIL_USER_EXISTS": bool(os.getenv("EMAIL_USER")),
-        "EMAIL_PASSWORD_EXISTS": bool(os.getenv("EMAIL_PASSWORD")),
-        "SMTP_FROM": os.getenv("SMTP_FROM") or os.getenv("SMTP_USER") or os.getenv("EMAIL_USER"),
-        "SMTP_USE_TLS": os.getenv("SMTP_USE_TLS", "true"),
-    })
-
-
-@app.route("/test-smtp")
-def test_smtp():
-    """Prueba conexión SMTP sin enviar correo"""
-    try:
-        smtp_host = os.getenv("SMTP_HOST", "smtp.gmail.com")
-        smtp_port = int(os.getenv("SMTP_PORT", "587"))
-        smtp_user = os.getenv("SMTP_USER") or os.getenv("EMAIL_USER")
-        smtp_password = os.getenv("SMTP_PASSWORD") or os.getenv("EMAIL_PASSWORD")
-        use_tls = os.getenv("SMTP_USE_TLS", "true").lower() in ("1", "true", "yes")
-
-        if not smtp_user:
-            return jsonify({"success": False, "error": "No hay EMAIL_USER o SMTP_USER"}), 400
-        if not smtp_password:
-            return jsonify({"success": False, "error": "No hay EMAIL_PASSWORD o SMTP_PASSWORD"}), 400
-
-        with smtplib.SMTP(smtp_host, smtp_port, timeout=10) as servidor:
-            servidor.ehlo()
-            if use_tls:
-                servidor.starttls()
-                servidor.ehlo()
-            servidor.login(smtp_user, smtp_password)
-            return jsonify({
-                "success": True,
-                "message": "Conexión SMTP exitosa",
-                "host": smtp_host,
-                "port": smtp_port,
-                "tls": use_tls
-            })
-    except smtplib.SMTPAuthenticationError as e:
-        return jsonify({
-            "success": False,
-            "error": f"Credenciales inválidas: {str(e)}"
-        }), 401
-    except smtplib.SMTPException as e:
-        return jsonify({
-            "success": False,
-            "error": f"Error SMTP: {str(e)}"
-        }), 500
-    except Exception as e:
-        return jsonify({
-            "success": False,
-            "error": f"Error: {str(e)}"
-        }), 500
 
 
 @app.route("/test-db")
@@ -210,13 +140,7 @@ def listar_productos():
 @app.route("/enviar-alerta", methods=["POST"])
 def enviar_alerta():
     try:
-        data = request.get_json(silent=True)
-        if not isinstance(data, dict):
-            return jsonify({
-                "success": False,
-                "message": "El body debe ser un JSON objeto con: to, subject, message"
-            }), 400
-
+        data = request.get_json()
         destino = data.get("to")
         asunto = data.get("subject")
         mensaje = data.get("message")
@@ -224,36 +148,18 @@ def enviar_alerta():
         if not destino or not asunto or not mensaje:
             return jsonify({
                 "success": False,
-                "message": "Faltan datos: to, subject, message"
+                "message": "Faltan datos"
             }), 400
 
         enviar_correo_alerta(asunto, mensaje, destino)
         return jsonify({
             "success": True,
-            "message": "Correo enviado exitosamente"
-        }), 200
-    except ValueError as e:
+            "message": "Correo enviado"
+        })
+    except Exception as e:
         return jsonify({
             "success": False,
             "error": str(e)
-        }), 400
-    except smtplib.SMTPAuthenticationError as e:
-        return jsonify({
-            "success": False,
-            "error": f"Error de autenticación SMTP: {str(e)}"
-        }), 401
-    except smtplib.SMTPException as e:
-        return jsonify({
-            "success": False,
-            "error": f"Error SMTP: {str(e)}"
-        }), 500
-    except Exception as e:
-        import traceback
-        return jsonify({
-            "success": False,
-            "error": str(e),
-            "type": type(e).__name__,
-            "traceback": traceback.format_exc() if app.debug else None
         }), 500
 
 

@@ -1,8 +1,41 @@
 import os
-from flask import Flask, jsonify
+import smtplib
+from email.mime.text import MIMEText
+from flask import Flask, jsonify, request
 from mssql_python import connect
 
 app = Flask(__name__)
+
+
+def enviar_correo_alerta(asunto, mensaje, destino):
+    smtp_host = os.getenv("SMTP_HOST")
+    smtp_port = int(os.getenv("SMTP_PORT", "587"))
+    smtp_user = os.getenv("SMTP_USER")
+    smtp_password = os.getenv("SMTP_PASSWORD")
+    smtp_from = os.getenv("SMTP_FROM", smtp_user)
+    use_tls = os.getenv("SMTP_USE_TLS", "true").lower() in ("1", "true", "yes")
+
+    if not smtp_host:
+        raise ValueError("Falta SMTP_HOST")
+    if not smtp_user:
+        raise ValueError("Falta SMTP_USER")
+    if not smtp_password:
+        raise ValueError("Falta SMTP_PASSWORD")
+    if not smtp_from:
+        raise ValueError("Falta SMTP_FROM")
+
+    correo = MIMEText(mensaje, "plain", "utf-8")
+    correo["Subject"] = asunto
+    correo["From"] = smtp_from
+    correo["To"] = destino
+
+    with smtplib.SMTP(smtp_host, smtp_port) as servidor:
+        servidor.ehlo()
+        if use_tls:
+            servidor.starttls()
+            servidor.ehlo()
+        servidor.login(smtp_user, smtp_password)
+        servidor.sendmail(smtp_from, [destino], correo.as_string())
 
 
 def get_connection():
@@ -120,6 +153,32 @@ def listar_productos():
             cursor.close()
         if conn:
             conn.close()
+
+
+@app.route("/enviar-alerta", methods=["POST"])
+def enviar_alerta():
+    try:
+        data = request.get_json() or {}
+        destino = data.get("to")
+        asunto = data.get("subject")
+        mensaje = data.get("message")
+
+        if not destino or not asunto or not mensaje:
+            return jsonify({
+                "success": False,
+                "message": "Faltan datos"
+            }), 400
+
+        enviar_correo_alerta(asunto, mensaje, destino)
+        return jsonify({
+            "success": True,
+            "message": "Correo enviado"
+        })
+    except Exception as e:
+        return jsonify({
+            "success": False,
+            "error": str(e)
+        }), 500
 
 
 if __name__ == "__main__":

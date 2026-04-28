@@ -8,19 +8,18 @@ app = Flask(__name__)
 
 
 def enviar_correo_alerta(asunto, mensaje, destino):
-    smtp_host = os.getenv("SMTP_HOST")
+    # Soporta dos convenciones de nombres en variables de entorno: SMTP_* y EMAIL_*.
+    smtp_host = os.getenv("SMTP_HOST", "smtp.gmail.com")
     smtp_port = int(os.getenv("SMTP_PORT", "587"))
-    smtp_user = os.getenv("SMTP_USER")
-    smtp_password = os.getenv("SMTP_PASSWORD")
-    smtp_from = os.getenv("SMTP_FROM", smtp_user)
+    smtp_user = os.getenv("SMTP_USER") or os.getenv("EMAIL_USER")
+    smtp_password = os.getenv("SMTP_PASSWORD") or os.getenv("EMAIL_PASSWORD")
+    smtp_from = os.getenv("SMTP_FROM") or smtp_user
     use_tls = os.getenv("SMTP_USE_TLS", "true").lower() in ("1", "true", "yes")
 
-    if not smtp_host:
-        raise ValueError("Falta SMTP_HOST")
     if not smtp_user:
-        raise ValueError("Falta SMTP_USER")
+        raise ValueError("Falta SMTP_USER o EMAIL_USER")
     if not smtp_password:
-        raise ValueError("Falta SMTP_PASSWORD")
+        raise ValueError("Falta SMTP_PASSWORD o EMAIL_PASSWORD")
     if not smtp_from:
         raise ValueError("Falta SMTP_FROM")
 
@@ -83,6 +82,14 @@ def debug_env():
         "DB_USERNAME": os.getenv("DB_USERNAME"),
         "DB_PASSWORD_EXISTS": bool(os.getenv("DB_PASSWORD")),
         "DB_PORT": os.getenv("DB_PORT"),
+        "SMTP_HOST": os.getenv("SMTP_HOST", "smtp.gmail.com"),
+        "SMTP_PORT": os.getenv("SMTP_PORT", "587"),
+        "SMTP_USER_EXISTS": bool(os.getenv("SMTP_USER")),
+        "SMTP_PASSWORD_EXISTS": bool(os.getenv("SMTP_PASSWORD")),
+        "EMAIL_USER_EXISTS": bool(os.getenv("EMAIL_USER")),
+        "EMAIL_PASSWORD_EXISTS": bool(os.getenv("EMAIL_PASSWORD")),
+        "SMTP_FROM": os.getenv("SMTP_FROM") or os.getenv("SMTP_USER") or os.getenv("EMAIL_USER"),
+        "SMTP_USE_TLS": os.getenv("SMTP_USE_TLS", "true"),
     })
 
 
@@ -158,7 +165,13 @@ def listar_productos():
 @app.route("/enviar-alerta", methods=["POST"])
 def enviar_alerta():
     try:
-        data = request.get_json() or {}
+        data = request.get_json(silent=True)
+        if not isinstance(data, dict):
+            return jsonify({
+                "success": False,
+                "message": "El body debe ser un JSON objeto con: to, subject, message"
+            }), 400
+
         destino = data.get("to")
         asunto = data.get("subject")
         mensaje = data.get("message")

@@ -1,6 +1,9 @@
 import os
+import threading
 from flask import Flask, jsonify, request
 from mssql_python import connect
+import resend
+import threading
 
 try:
     from resend import Resend
@@ -33,6 +36,62 @@ def enviar_correo_alerta(asunto, mensaje, destino):
     
     if not response.get("id"):
         raise ValueError(f"Error Resend: {response}")
+
+
+def enviar_correo_resend(destino, asunto, mensaje):
+    """Envía correo usando Resend (sincrónico)."""
+    resend_key = os.getenv("RESEND_API_KEY")
+    from_email = os.getenv("MAIL_RESEND", "onboarding@resend.dev")
+
+    if not resend_key:
+        raise ValueError("Falta RESEND_API_KEY")
+    if not HAS_RESEND:
+        raise ValueError("Resend no instalado")
+
+    client = Resend(api_key=resend_key)
+    client.emails.send({
+        "from": from_email,
+        "to": destino,
+        "subject": asunto,
+        "html": f"<p>{mensaje}</p>"
+    })
+
+
+@app.route("/enviar-alerta-resend", methods=["POST"])
+def enviar_alerta_resend():
+    data = request.get_json(silent=True) or {}
+
+    correo = data.get("email") or data.get("to")
+    asunto = data.get("subject", "Notificación")
+    mensaje = data.get("message", "Mensaje desde Render")
+
+    if not correo:
+        return jsonify({"error": "Falta el email"}), 400
+
+    try:
+        thread = threading.Thread(target=enviar_correo_resend, args=(correo, asunto, mensaje), daemon=True)
+        thread.start()
+
+        return jsonify({
+            "status": "ok",
+            "msg": "Correo en proceso de envío (async)"
+        })
+
+    except Exception as e:
+        return jsonify({
+            "status": "error",
+            "msg": str(e)
+        }), 500
+
+
+@app.route("/test-resend")
+def test_resend():
+    """Devuelve estado de instalación y presencia de RESEND_API_KEY (no envía correo)."""
+    return jsonify({
+        "has_resend_library": HAS_RESEND,
+        "resend_api_key_exists": bool(os.getenv("RESEND_API_KEY")),
+        "recommended_from": "onboarding@resend.dev"
+    })
 
 
 def get_connection():

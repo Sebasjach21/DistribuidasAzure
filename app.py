@@ -93,6 +93,51 @@ def debug_env():
     })
 
 
+@app.route("/test-smtp")
+def test_smtp():
+    """Prueba conexión SMTP sin enviar correo"""
+    try:
+        smtp_host = os.getenv("SMTP_HOST", "smtp.gmail.com")
+        smtp_port = int(os.getenv("SMTP_PORT", "587"))
+        smtp_user = os.getenv("SMTP_USER") or os.getenv("EMAIL_USER")
+        smtp_password = os.getenv("SMTP_PASSWORD") or os.getenv("EMAIL_PASSWORD")
+        use_tls = os.getenv("SMTP_USE_TLS", "true").lower() in ("1", "true", "yes")
+
+        if not smtp_user:
+            return jsonify({"success": False, "error": "No hay EMAIL_USER o SMTP_USER"}), 400
+        if not smtp_password:
+            return jsonify({"success": False, "error": "No hay EMAIL_PASSWORD o SMTP_PASSWORD"}), 400
+
+        with smtplib.SMTP(smtp_host, smtp_port, timeout=10) as servidor:
+            servidor.ehlo()
+            if use_tls:
+                servidor.starttls()
+                servidor.ehlo()
+            servidor.login(smtp_user, smtp_password)
+            return jsonify({
+                "success": True,
+                "message": "Conexión SMTP exitosa",
+                "host": smtp_host,
+                "port": smtp_port,
+                "tls": use_tls
+            })
+    except smtplib.SMTPAuthenticationError as e:
+        return jsonify({
+            "success": False,
+            "error": f"Credenciales inválidas: {str(e)}"
+        }), 401
+    except smtplib.SMTPException as e:
+        return jsonify({
+            "success": False,
+            "error": f"Error SMTP: {str(e)}"
+        }), 500
+    except Exception as e:
+        return jsonify({
+            "success": False,
+            "error": f"Error: {str(e)}"
+        }), 500
+
+
 @app.route("/test-db")
 def test_db():
     conn = None
@@ -179,18 +224,36 @@ def enviar_alerta():
         if not destino or not asunto or not mensaje:
             return jsonify({
                 "success": False,
-                "message": "Faltan datos"
+                "message": "Faltan datos: to, subject, message"
             }), 400
 
         enviar_correo_alerta(asunto, mensaje, destino)
         return jsonify({
             "success": True,
-            "message": "Correo enviado"
-        })
-    except Exception as e:
+            "message": "Correo enviado exitosamente"
+        }), 200
+    except ValueError as e:
         return jsonify({
             "success": False,
             "error": str(e)
+        }), 400
+    except smtplib.SMTPAuthenticationError as e:
+        return jsonify({
+            "success": False,
+            "error": f"Error de autenticación SMTP: {str(e)}"
+        }), 401
+    except smtplib.SMTPException as e:
+        return jsonify({
+            "success": False,
+            "error": f"Error SMTP: {str(e)}"
+        }), 500
+    except Exception as e:
+        import traceback
+        return jsonify({
+            "success": False,
+            "error": str(e),
+            "type": type(e).__name__,
+            "traceback": traceback.format_exc() if app.debug else None
         }), 500
 
 

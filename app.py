@@ -1,34 +1,38 @@
 import os
-import smtplib
-from email.mime.text import MIMEText
 from flask import Flask, jsonify, request
 from mssql_python import connect
+
+try:
+    from resend import Resend
+    HAS_RESEND = True
+except ImportError:
+    HAS_RESEND = False
+    Resend = None
 
 app = Flask(__name__)
 
 
 def enviar_correo_alerta(asunto, mensaje, destino):
-    """Envía correo usando EMAIL_USER y EMAIL_PASSWORD de Render"""
-    email_user = os.getenv("EMAIL_USER")
-    email_password = os.getenv("EMAIL_PASSWORD")
+    """Envía correo usando Resend (recomendado para Render)"""
+    resend_key = os.getenv("RESEND_API_KEY")
     
-    if not email_user or not email_password:
-        raise ValueError("Faltan EMAIL_USER o EMAIL_PASSWORD")
+    if not resend_key:
+        raise ValueError("Falta RESEND_API_KEY")
     
-    # Conectar a Gmail SMTP (puerto 587 es para envío de correos)
-    servidor = smtplib.SMTP("smtp.gmail.com", 587, timeout=10)
-    servidor.starttls()  # Encriptar la conexión
-    servidor.login(email_user, email_password)
+    if not HAS_RESEND:
+        raise ValueError("Resend no instalado")
     
-    # Crear el correo
-    correo = MIMEText(mensaje, "plain", "utf-8")
-    correo["Subject"] = asunto
-    correo["From"] = email_user
-    correo["To"] = destino
+    client = Resend(api_key=resend_key)
     
-    # Enviar
-    servidor.sendmail(email_user, [destino], correo.as_string())
-    servidor.quit()
+    response = client.emails.send({
+        "from": "onboarding@resend.dev",
+        "to": destino,
+        "subject": asunto,
+        "html": f"<p>{mensaje}</p>"
+    })
+    
+    if not response.get("id"):
+        raise ValueError(f"Error Resend: {response}")
 
 
 def get_connection():

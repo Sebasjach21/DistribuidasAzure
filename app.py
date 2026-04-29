@@ -2,9 +2,11 @@ import os
 import threading
 import requests
 from flask import Flask, jsonify, request
+from flask_cors import CORS
 from mssql_python import connect
 
 app = Flask(__name__)
+CORS(app)
 
 
 def enviar_correo_resend(destino, asunto, mensaje):

@@ -200,44 +200,5 @@ def listar_productos():
             cursor.close()
         if conn:
             conn.close()
-
-#?============== RESEND
-# Configurar API Key
-resend.api_key = os.environ["RESEND_API_KEY"]
-FROM_EMAIL = os.environ.get("MAIL_RESEND", "onboarding@resend.dev")
-
-# Función de envío
-def enviar_correo_resend(destino, asunto, mensaje):
-    resend.Emails.send({
-        "from": FROM_EMAIL,
-        "to": [destino],
-        "subject": asunto,
-        "html": f"<p>{mensaje}</p>"
-    })
-
-# Endpoint
-@app.route("/enviar-alerta-resend", methods=["POST"])
-def enviar_alerta_resend():
-    data = request.json
-
-    correo = data.get("email")
-    asunto = data.get("subject", "Notificación")
-    mensaje = data.get("message", "Mensaje desde Render")
-
-    if not correo:
-        return jsonify({"error": "Falta el email"}), 400
-
-    try:
-        # Evita WORKER TIMEOUT
-        threading.Thread(target=enviar_correo_resend, args=(correo, asunto, mensaje)).start()
-
-        return jsonify({
-            "status": "ok",
-            "msg": "Correo enviado (async)"
-        })
-
-    except Exception as e:
-        return jsonify({
-            "status": "error",
-            "msg": str(e)
-        }), 500
+        if conn:
+            conn.close()

@@ -1,10 +1,88 @@
 import os
+import threading
+import requests
 from flask import Flask, jsonify, request
 from mssql_python import connect
-import resend
-import threading
 
 app = Flask(__name__)
+
+
+def enviar_correo_resend(destino, asunto, mensaje):
+    """Envía correo usando Resend REST API."""
+    resend_key = os.getenv("RESEND_API_KEY")
+    from_email = os.getenv("MAIL_RESEND", "onboarding@resend.dev")
+    
+    if not resend_key:
+        raise ValueError("Falta RESEND_API_KEY")
+    
+    url = "https://api.resend.com/emails"
+    headers = {
+        "Authorization": f"Bearer {resend_key}",
+        "Content-Type": "application/json"
+    }
+    payload = {
+        "from": from_email,
+        "to": destino,
+        "subject": asunto,
+        "html": f"<p>{mensaje}</p>"
+    }
+    resp = requests.post(url, headers=headers, json=payload, timeout=10)
+    if resp.status_code not in (200, 201):
+        raise ValueError(f"Error Resend {resp.status_code}: {resp.text}")
+    return resp.json()
+
+
+@app.route("/enviar-alerta", methods=["POST"])
+def enviar_alerta():
+    """Endpoint sincrónico para enviar alertas."""
+    try:
+        data = request.get_json(silent=True) or {}
+        destino = data.get("to") or data.get("email")
+        asunto = data.get("subject")
+        mensaje = data.get("message")
+
+        if not destino or not asunto or not mensaje:
+            return jsonify({
+                "success": False,
+                "message": "Faltan datos: to/email, subject, message"
+            }), 400
+
+        result = enviar_correo_resend(destino, asunto, mensaje)
+        return jsonify({
+            "success": True,
+            "message": "Correo enviado",
+            "id": result.get("id")
+        })
+    except Exception as e:
+        return jsonify({
+            "success": False,
+            "error": str(e)
+        }), 500
+
+
+@app.route("/enviar-alerta-resend", methods=["POST"])
+def enviar_alerta_resend():
+    """Endpoint asincrónico para enviar alertas (evita timeouts)."""
+    data = request.get_json(silent=True) or {}
+    correo = data.get("email") or data.get("to")
+    asunto = data.get("subject", "Notificación")
+    mensaje = data.get("message", "Mensaje desde Render")
+
+    if not correo:
+        return jsonify({"error": "Falta email o to"}), 400
+
+    try:
+        thread = threading.Thread(target=enviar_correo_resend, args=(correo, asunto, mensaje), daemon=True)
+        thread.start()
+        return jsonify({
+            "status": "ok",
+            "msg": "Correo en proceso de envío (async)"
+        })
+    except Exception as e:
+        return jsonify({
+            "status": "error",
+            "msg": str(e)
+        }), 500
 
 
 def get_connection():
